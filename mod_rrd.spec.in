@@ -1,0 +1,35 @@
+# RPM Spec file for mod_rrd
+
+Name:      mod_rrd
+Version:   @PACKAGE_VERSION@
+Release:   1%{?dist}
+Summary:   Apache httpd rrd filter module
+License:   ASL 2.0
+Group:     System Environment/Daemons
+Source:    https://github.com/minfrin/%{name}/releases/download/%{name}-%{version}/%{name}-%{version}.tar.bz2
+Url:       https://github.com/minfrin/%{name}
+BuildRequires: gcc, pkgconfig(apr-1), pkgconfig(apr-util-1), httpd-devel
+Requires: httpd
+
+%description
+The Apache mod_rrd module provides a set of filters and handlers
+to manipulate and display RRD graphs.
+
+%prep
+%setup -q
+%build
+%configure
+make %{?_smp_mflags}
+
+%install
+%make_install
+
+%files
+%{_libdir}/httpd/modules/mod_rrd.so
+
+%doc AUTHORS ChangeLog README.md
+
+%changelog
+* Tue Oct 22 2019 Graham Leggett <minfrin@sharp.fm> - 1.0.0-1
+- Initial version of the package
+

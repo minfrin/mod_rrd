@@ -1,0 +1,13 @@
+Source: mod-rrd
+Priority: extra
+Maintainer: Graham Leggett <minfrin@sharp.fm>
+Build-Depends: debhelper (>= 8.0.0), autotools-dev, apache2-dev, rrdtool-dev
+Standards-Version: 3.9.2
+Section: libs
+
+Package: mod-rrd
+Section: libs
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: The Apache mod_rrd module provides a set of filters and handlers to manipulate and display RRD graphs.
+
