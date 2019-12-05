@@ -2460,8 +2460,8 @@ static int get_rrd(request_rec *r)
      * if a file does not exist, assume it is a request for a graph, otherwise
      * go with the original file.
      */
-    if (r->filename && r->finfo.filetype == APR_NOFILE && conf->format ?
-            conf->format : parse_rrdgraph_suffix(r)) {
+    if ((conf->format) ||
+    		(r->filename && r->finfo.filetype == APR_NOFILE && parse_rrdgraph_suffix(r))) {
         return get_rrdgraph(r);
     }
 
