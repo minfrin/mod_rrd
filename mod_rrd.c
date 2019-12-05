@@ -29,7 +29,7 @@
  *     RRDGraph on
  *     RRDGraphOption title %{SERVER_NAME}
  *     RRDGraphEnv METHODS %{REQUEST_METHOD}
- *     RRDGraphElement DEF:xifOutOctets=monitor*.rrd:ifOutOctets:AVERAGE
+ *     RRDGraphElement DEF:xifOutOctets=monitor*.rrd:ifOutOctets:AVERAGE "/path/expression/monitor*.rrd"
  *     RRDGraphElement VDEF:xifOutOctetsmax=xifOutOctets+,MAXIMUM
  *     RRDGraphElement CDEF:xcombined=xifOutOctets,1,+
  *     RRDGraphElement LINE1:xifOutOctets#00ff00:Out+Octets :%{SERVER_NAME}
@@ -165,6 +165,7 @@ typedef struct rrd_def_t {
     const char *cf;
     apr_pool_t *pool;
     apr_array_header_t *requests;
+    ap_expr_info_t *epath;
 } rrd_def_t;
 
 typedef struct rrd_vdef_t {
@@ -529,7 +530,7 @@ static const char *parse_rrdgraph_suffix(request_rec *r)
     return NULL;
 }
 
-static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *elegend,
+static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *expr,
         apr_array_header_t *cmds)
 {
     switch (element[0]) {
@@ -542,7 +543,7 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *ele
             element += 5;
             vncol = ap_getword(p, &element, ':');
             cmd->a.legend = getword_quote(p, &element, ':');
-            cmd->a.elegend = elegend;
+            cmd->a.elegend = expr;
             cmd->a.args = element;
             cmd->a.vname = apr_cstr_tokenize("#", &vncol);
             cmd->a.colour = vncol;
@@ -572,7 +573,7 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *ele
             cmd->type = RRD_CONF_COMMENT;
             cmd->e.element = ap_getword(p, &element, ':');
             cmd->a.legend = getword_quote(p, &element, ':');
-            cmd->e.elegend = elegend;
+            cmd->e.elegend = expr;
             return 1;
         }
         break;
@@ -588,6 +589,7 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *ele
             cmd->d.cf = element;
             cmd->d.pool = p;
             cmd->d.requests = apr_array_make(p, 10, sizeof(request_rec *));
+            cmd->d.epath = expr;
             return 1;
         }
         break;
@@ -611,7 +613,7 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *ele
             element += 6;
             vncol = ap_getword(p, &element, ':');
             cmd->r.legend = getword_quote(p, &element, ':');
-            cmd->r.elegend = elegend;
+            cmd->r.elegend = expr;
             cmd->r.args = element;
             cmd->r.val = apr_cstr_tokenize("#", &vncol);
             cmd->r.colour = vncol;
@@ -627,11 +629,11 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *ele
             cmd->l.line = ap_getword(p, &element, ':');
             vncol = ap_getword(p, &element, ':');
             cmd->l.legend = getword_quote(p, &element, ':');
-            cmd->l.elegend = elegend;
+            cmd->l.elegend = expr;
             cmd->l.args = element;
             cmd->l.vname = apr_cstr_tokenize("#", &vncol);
             cmd->l.colour = vncol;
-            cmd->l.elegend = elegend;
+            cmd->l.elegend = expr;
             return 1;
         }
         break;
@@ -667,7 +669,7 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *ele
             vncol = ap_getword(p, &element, ':');
             cmd->t.fraction = ap_getword(p, &element, ':');
             cmd->t.legend = getword_quote(p, &element, ':');
-            cmd->t.elegend = elegend;
+            cmd->t.elegend = expr;
             cmd->t.args = element;
             cmd->t.vname = apr_cstr_tokenize("#", &vncol);
             cmd->t.colour = vncol;
@@ -679,7 +681,7 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *ele
             cmd->type = RRD_CONF_TEXTALIGN;
             cmd->e.element = ap_getword(p, &element, ':');
             cmd->a.legend = getword_quote(p, &element, ':');
-            cmd->e.elegend = elegend;
+            cmd->e.elegend = expr;
             return 1;
         }
         break;
@@ -702,7 +704,7 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *ele
             element += 6;
             vncol = ap_getword(p, &element, ':');
             cmd->r.legend = getword_quote(p, &element, ':');
-            cmd->r.elegend = elegend;
+            cmd->r.elegend = expr;
             cmd->r.args = element;
             cmd->r.val = apr_cstr_tokenize("#", &vncol);
             cmd->r.colour = vncol;
@@ -1147,7 +1149,7 @@ static int resolve_def(request_rec *r, rrd_cmd_t *cmd, rrd_cmds_t *cmds)
     ap_dir_match_t w;
     rrd_cb_t ctx;
     apr_pool_t *ptemp;
-    const char *last, *dirpath = r->filename;
+    const char *last, *path, *dirpath = r->filename;
     apr_hash_index_t *hi, *hi2;
     apr_hash_t *set;
 
@@ -1168,16 +1170,29 @@ static int resolve_def(request_rec *r, rrd_cmd_t *cmd, rrd_cmds_t *cmds)
     w.ctx = &ctx;
     w.depth = 0;
 
+    path = cmd->d.path;
+    if (cmd->d.epath) {
+        const char *err = NULL;
+        path = ap_expr_str_exec(r, cmd->d.epath, &err);
+        if (err) {
+            log_message(r, APR_SUCCESS,
+                apr_psprintf(r->pool,
+                        "While evaluating an element expression: %s", err), NULL);
+            return HTTP_INTERNAL_SERVER_ERROR;
+        }
+        path = pescape_colon(r->pool, path);
+    }
+
     last = strrchr(r->filename, '/');
     if (last) {
         dirpath = apr_pstrndup(ptemp, r->filename, last - r->filename);
     }
 
-    const char *err = ap_dir_fnmatch(&w, dirpath, cmd->d.path);
+    const char *err = ap_dir_fnmatch(&w, dirpath, path);
     if (err) {
         log_message(r, APR_SUCCESS,
             apr_psprintf(r->pool,
-                    "While parsing DEF '%s': %s", cmd->d.path, err), NULL);
+                    "While parsing DEF path '%s': %s", path, err), NULL);
         return HTTP_BAD_REQUEST;
     }
 
