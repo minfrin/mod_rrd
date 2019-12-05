@@ -29,7 +29,7 @@
  *     RRDGraph on
  *     RRDGraphOption title %{SERVER_NAME}
  *     RRDGraphEnv METHODS %{REQUEST_METHOD}
- *     RRDGraphElement DEF:xifOutOctets=monitor*.rrd:ifOutOctets:AVERAGE "/path/expression/monitor*.rrd"
+ *     RRDGraphElement DEF:xifOutOctets=monitor*.rrd:ifOutOctets:AVERAGE "optional/expression/monitor*.rrd" "/optional/path/prefix/"
  *     RRDGraphElement VDEF:xifOutOctetsmax=xifOutOctets+,MAXIMUM
  *     RRDGraphElement CDEF:xcombined=xifOutOctets,1,+
  *     RRDGraphElement LINE1:xifOutOctets#00ff00:Out+Octets :%{SERVER_NAME}
@@ -168,6 +168,7 @@ typedef struct rrd_def_t {
     apr_pool_t *pool;
     apr_array_header_t *requests;
     ap_expr_info_t *epath;
+    ap_expr_info_t *edirpath;
 } rrd_def_t;
 
 typedef struct rrd_vdef_t {
@@ -532,8 +533,8 @@ static const char *parse_rrdgraph_suffix(request_rec *r)
     return NULL;
 }
 
-static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *expr,
-        apr_array_header_t *cmds)
+static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *expr1,
+		ap_expr_info_t *expr2, apr_array_header_t *cmds)
 {
     switch (element[0]) {
     case 'A':
@@ -545,7 +546,7 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *exp
             element += 5;
             vncol = ap_getword(p, &element, ':');
             cmd->a.legend = getword_quote(p, &element, ':');
-            cmd->a.elegend = expr;
+            cmd->a.elegend = expr1;
             cmd->a.args = element;
             cmd->a.vname = apr_cstr_tokenize("#", &vncol);
             cmd->a.colour = vncol;
@@ -575,7 +576,7 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *exp
             cmd->type = RRD_CONF_COMMENT;
             cmd->e.element = ap_getword(p, &element, ':');
             cmd->a.legend = getword_quote(p, &element, ':');
-            cmd->e.elegend = expr;
+            cmd->e.elegend = expr1;
             return 1;
         }
         break;
@@ -591,7 +592,8 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *exp
             cmd->d.cf = element;
             cmd->d.pool = p;
             cmd->d.requests = apr_array_make(p, 10, sizeof(request_rec *));
-            cmd->d.epath = expr;
+            cmd->d.epath = expr1;
+            cmd->d.edirpath = expr2;
             return 1;
         }
         break;
@@ -615,7 +617,7 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *exp
             element += 6;
             vncol = ap_getword(p, &element, ':');
             cmd->r.legend = getword_quote(p, &element, ':');
-            cmd->r.elegend = expr;
+            cmd->r.elegend = expr1;
             cmd->r.args = element;
             cmd->r.val = apr_cstr_tokenize("#", &vncol);
             cmd->r.colour = vncol;
@@ -631,11 +633,11 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *exp
             cmd->l.line = ap_getword(p, &element, ':');
             vncol = ap_getword(p, &element, ':');
             cmd->l.legend = getword_quote(p, &element, ':');
-            cmd->l.elegend = expr;
+            cmd->l.elegend = expr1;
             cmd->l.args = element;
             cmd->l.vname = apr_cstr_tokenize("#", &vncol);
             cmd->l.colour = vncol;
-            cmd->l.elegend = expr;
+            cmd->l.elegend = expr1;
             return 1;
         }
         break;
@@ -671,7 +673,7 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *exp
             vncol = ap_getword(p, &element, ':');
             cmd->t.fraction = ap_getword(p, &element, ':');
             cmd->t.legend = getword_quote(p, &element, ':');
-            cmd->t.elegend = expr;
+            cmd->t.elegend = expr1;
             cmd->t.args = element;
             cmd->t.vname = apr_cstr_tokenize("#", &vncol);
             cmd->t.colour = vncol;
@@ -683,7 +685,7 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *exp
             cmd->type = RRD_CONF_TEXTALIGN;
             cmd->e.element = ap_getword(p, &element, ':');
             cmd->a.legend = getword_quote(p, &element, ':');
-            cmd->e.elegend = expr;
+            cmd->e.elegend = expr1;
             return 1;
         }
         break;
@@ -706,7 +708,7 @@ static int parse_element(apr_pool_t *p, const char *element, ap_expr_info_t *exp
             element += 6;
             vncol = ap_getword(p, &element, ':');
             cmd->r.legend = getword_quote(p, &element, ':');
-            cmd->r.elegend = expr;
+            cmd->r.elegend = expr1;
             cmd->r.args = element;
             cmd->r.val = apr_cstr_tokenize("#", &vncol);
             cmd->r.colour = vncol;
@@ -1104,7 +1106,7 @@ static int parse_query(request_rec *r, rrd_cmds_t **pcmds)
             return HTTP_BAD_REQUEST;
         }
 
-        if (parse_element(r->pool, element, NULL, cmds->cmds)) {
+        if (parse_element(r->pool, element, NULL, NULL, cmds->cmds)) {
             continue;
         }
 
@@ -1182,12 +1184,23 @@ static int resolve_def(request_rec *r, rrd_cmd_t *cmd, rrd_cmds_t *cmds)
                         "While evaluating an element expression: %s", err), NULL);
             return HTTP_INTERNAL_SERVER_ERROR;
         }
-        path = pescape_colon(r->pool, path);
     }
 
-    last = strrchr(r->filename, '/');
-    if (last) {
-        dirpath = apr_pstrndup(ptemp, r->filename, last - r->filename);
+    if (cmd->d.edirpath) {
+        const char *err = NULL;
+        dirpath = ap_expr_str_exec(r, cmd->d.edirpath, &err);
+        if (err) {
+            log_message(r, APR_SUCCESS,
+                apr_psprintf(r->pool,
+                        "While evaluating an element expression: %s", err), NULL);
+            return HTTP_INTERNAL_SERVER_ERROR;
+        }
+    }
+    else {
+    	last = strrchr(r->filename, '/');
+    	if (last) {
+        	dirpath = apr_pstrndup(ptemp, r->filename, last - r->filename);
+    	}
     }
 
     ap_log_rerror(
@@ -2162,7 +2175,7 @@ static int generate_def(request_rec *r, rrd_cmd_t *cmd, apr_array_header_t *args
     else if (cmd->d.requests->nelts == 1) {
         request_rec *rr = APR_ARRAY_IDX(cmd->d.requests, 0, request_rec *);
         const char *arg = apr_psprintf(r->pool, "DEF:%s=%s:%s:%s", cmd->d.vname,
-            rr->filename, cmd->d.dsname, cmd->d.cf);
+        		pescape_colon(r->pool, rr->filename), cmd->d.dsname, cmd->d.cf);
         APR_ARRAY_PUSH(args, const char *) = arg;
     }
 
@@ -2175,7 +2188,7 @@ static int generate_def(request_rec *r, rrd_cmd_t *cmd, apr_array_header_t *args
         for (j = 0; j < cmd->d.requests->nelts; ++j) {
             request_rec *rr = APR_ARRAY_IDX(cmd->d.requests, j, request_rec *);
             const char *arg = apr_psprintf(r->pool, "DEF:%sw%d=%s:%s:%s", cmd->d.vname,
-                j, rr->filename, cmd->d.dsname, cmd->d.cf);
+                j, pescape_colon(r->pool, rr->filename), cmd->d.dsname, cmd->d.cf);
             APR_ARRAY_PUSH(args, const char *) = arg;
             len += apr_snprintf(NULL, 0, "%s%sw%d%s", j ? "," : "", cmd->d.vname, j, j ? ",+" : "");
         }
@@ -2591,26 +2604,39 @@ static const char *set_rrd_graph_option(cmd_parms *cmd, void *dconf, const char 
 }
 
 static const char *set_rrd_graph_element(cmd_parms *cmd, void *dconf,
-        const char *element, const char *legend)
+        const char *element, const char *val1, const char *val2)
 {
     rrd_conf *conf = dconf;
-    ap_expr_info_t *elegend = NULL;
+    ap_expr_info_t *eval1 = NULL, *eval2 = NULL;
     const char *expr_err = NULL;
 
-    if (legend) {
+    if (val1) {
 
-        elegend = ap_expr_parse_cmd(cmd, legend, AP_EXPR_FLAG_STRING_RESULT,
+        eval1 = ap_expr_parse_cmd(cmd, val1, AP_EXPR_FLAG_STRING_RESULT,
                 &expr_err, NULL);
 
         if (expr_err) {
             return apr_pstrcat(cmd->temp_pool,
-                    "Cannot parse expression '", legend, "': ",
+                    "Cannot parse expression '", val1, "': ",
                     expr_err, NULL);
         }
 
     }
 
-    if (!parse_element(cmd->pool, element, elegend, conf->elements)) {
+    if (val2) {
+
+        eval2 = ap_expr_parse_cmd(cmd, val2, AP_EXPR_FLAG_STRING_RESULT,
+                &expr_err, NULL);
+
+        if (expr_err) {
+            return apr_pstrcat(cmd->temp_pool,
+                    "Cannot parse expression '", val2, "': ",
+                    expr_err, NULL);
+        }
+
+    }
+
+    if (!parse_element(cmd->pool, element, eval1, eval2, conf->elements)) {
         return apr_psprintf(cmd->pool,
                 "RRDGraphElement was not recognised: %s", element);
     }
@@ -2656,7 +2682,7 @@ static const command_rec rrd_cmds[] = {
         "Explicitly set the image format. Takes any valid --imgformat value."),
     AP_INIT_TAKE12("RRDGraphOption", set_rrd_graph_option, NULL, RSRC_CONF | ACCESS_CONF,
         "Options for the rrdgraph image generator."),
-    AP_INIT_TAKE12("RRDGraphElement", set_rrd_graph_element, NULL, RSRC_CONF | ACCESS_CONF,
+    AP_INIT_TAKE123("RRDGraphElement", set_rrd_graph_element, NULL, RSRC_CONF | ACCESS_CONF,
         "Elements for the rrdgraph image generator. If specified, an optional expression can be set for the legend where appropriate."),
     AP_INIT_TAKE2("RRDGraphEnv", set_rrd_graph_env, NULL, RSRC_CONF | ACCESS_CONF,
         "Summarise environment variables from the RRD file requests."), { NULL }

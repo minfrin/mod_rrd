@@ -1,6 +1,9 @@
 
 Changes with v1.0.1
 
+  *) Add the option to explicitly set the base directory against which
+     wildcards are interpreted. [Graham Leggett <minfrin@sharp.fm>]
+
   *) Make sure that we set an explicit handler in the fixups hook.
      [Graham Leggett <minfrin@sharp.fm>]
 
