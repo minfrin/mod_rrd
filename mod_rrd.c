@@ -1192,8 +1192,8 @@ static int resolve_def(request_rec *r, rrd_cmd_t *cmd, rrd_cmds_t *cmds)
 
     ap_log_rerror(
             APLOG_MARK, APLOG_DEBUG, APR_SUCCESS, r,
-            "mod_rrd: Attempting to match RRD files against wildcard: %s/%s",
-            dirpath, path);
+            "mod_rrd: Attempting to match wildcard RRD path '%s' against base '%s'",
+            path, dirpath);
 
     const char *err = ap_dir_fnmatch(&w, dirpath, path);
     if (err) {
