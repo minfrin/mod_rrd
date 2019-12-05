@@ -2468,6 +2468,23 @@ static int get_rrd(request_rec *r)
     return DECLINED;
 }
 
+static int rrd_fixups(request_rec *r)
+{
+    rrd_conf *conf = ap_get_module_config(r->per_dir_config,
+            &rrd_module);
+
+    if (!conf) {
+        return DECLINED;
+    }
+
+    if (conf->graph) {
+    	r->handler = "rrdgraph";
+    	return OK;
+    }
+
+    return DECLINED;
+}
+
 static int rrd_handler(request_rec *r)
 {
 
@@ -2648,7 +2665,8 @@ static const command_rec rrd_cmds[] = {
 static void register_hooks(apr_pool_t *p)
 {
     ap_hook_child_init(rrd_child_init,NULL,NULL,APR_HOOK_MIDDLE);
-    ap_hook_handler(rrd_handler, NULL, NULL, APR_HOOK_MIDDLE);
+    ap_hook_fixups(rrd_fixups, NULL, NULL, APR_HOOK_MIDDLE);
+    ap_hook_handler(rrd_handler, NULL, NULL, APR_HOOK_FIRST);
 }
 
 AP_DECLARE_MODULE(rrd) = {
