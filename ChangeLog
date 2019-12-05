@@ -1,6 +1,10 @@
 
 Changes with v1.0.1
 
+  *) Add the RRDGraphFormat option to specify the desired format for a
+     graph, overriding the file extension.
+     [Graham Leggett <minfrin@sharp.fm>]
+
   *) Allow the DEF element to support an expression as a path, so that RRD
      files can be mapped dynamically from the original request URL using
      expressions. [Graham Leggett <minfrin@sharp.fm>]

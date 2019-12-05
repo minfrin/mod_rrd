@@ -130,8 +130,10 @@ typedef struct rrd_conf {
     apr_array_header_t *options;
     apr_array_header_t *elements;
     apr_hash_t *env;
+    const char *format;
     int graph;
     unsigned int location_set:1;
+    unsigned int format_set:1;
     unsigned int graph_set:1;
 } rrd_conf;
 
@@ -1190,7 +1192,7 @@ static int resolve_def(request_rec *r, rrd_cmd_t *cmd, rrd_cmds_t *cmds)
 
     ap_log_rerror(
             APLOG_MARK, APLOG_DEBUG, APR_SUCCESS, r,
-			"mod_rrd: Attempting to match RRD files against wildcard: %s/%s",
+            "mod_rrd: Attempting to match RRD files against wildcard: %s/%s",
             dirpath, path);
 
     const char *err = ap_dir_fnmatch(&w, dirpath, path);
@@ -2198,6 +2200,9 @@ static int generate_args(request_rec *r, rrd_cmds_t *cmds, apr_array_header_t **
     rrd_opt_t *opt;
     int i, num = 4, ret = OK;
 
+    rrd_conf *conf = ap_get_module_config(r->per_dir_config,
+            &rrd_module);
+
     /* count the options */
     for (i = 0; i < cmds->opts->nelts; ++i) {
 
@@ -2228,7 +2233,7 @@ static int generate_args(request_rec *r, rrd_cmds_t *cmds, apr_array_header_t **
     APR_ARRAY_PUSH(args, const char *) = "rrdgraph";
     APR_ARRAY_PUSH(args, const char *) = "-";
     APR_ARRAY_PUSH(args, const char *) = "--imgformat";
-    APR_ARRAY_PUSH(args, const char *) = parse_rrdgraph_suffix(r);
+    APR_ARRAY_PUSH(args, const char *) = conf->format ? conf->format : parse_rrdgraph_suffix(r);
 
     /* first create the options */
     for (i = 0; i < cmds->opts->nelts; ++i) {
@@ -2449,11 +2454,14 @@ static int get_rrdgraph(request_rec *r)
 
 static int get_rrd(request_rec *r)
 {
+    rrd_conf *conf = ap_get_module_config(r->per_dir_config,
+            &rrd_module);
     /*
      * if a file does not exist, assume it is a request for a graph, otherwise
      * go with the original file.
      */
-    if (r->filename && r->finfo.filetype == APR_NOFILE && parse_rrdgraph_suffix(r)) {
+    if (r->filename && r->finfo.filetype == APR_NOFILE && conf->format ?
+            conf->format : parse_rrdgraph_suffix(r)) {
         return get_rrdgraph(r);
     }
 
@@ -2520,10 +2528,23 @@ static void *merge_rrd_config(apr_pool_t *p, void *basev, void *addv)
     new->location = (add->location_set == 0) ? base->location : add->location;
     new->location_set = add->location_set || base->location_set;
 
+    new->format = (add->format_set == 0) ? base->format : add->format;
+    new->format_set = add->format_set || base->format_set;
+
     new->graph = (add->graph_set == 0) ? base->graph : add->graph;
     new->graph_set = add->graph_set || base->graph_set;
 
     return new;
+}
+
+static const char *set_rrd_graph_format(cmd_parms *cmd, void *dconf, const char *format)
+{
+    rrd_conf *conf = dconf;
+
+    conf->format = format;
+    conf->format_set = 1;
+
+    return NULL;
 }
 
 static const char *set_rrd_graph_option(cmd_parms *cmd, void *dconf, const char *key, const char *val)
@@ -2614,6 +2635,8 @@ static const char *set_rrd_graph(cmd_parms *cmd, void *dconf, int flag)
 static const command_rec rrd_cmds[] = {
     AP_INIT_FLAG("RRDGraph", set_rrd_graph, NULL, RSRC_CONF | ACCESS_CONF,
         "Enable the rrdgraph image generator."),
+    AP_INIT_TAKE1("RRDGraphFormat", set_rrd_graph_format, NULL, RSRC_CONF | ACCESS_CONF,
+        "Explicitly set the image format. Takes any valid --imgformat value."),
     AP_INIT_TAKE12("RRDGraphOption", set_rrd_graph_option, NULL, RSRC_CONF | ACCESS_CONF,
         "Options for the rrdgraph image generator."),
     AP_INIT_TAKE12("RRDGraphElement", set_rrd_graph_element, NULL, RSRC_CONF | ACCESS_CONF,
