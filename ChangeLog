@@ -1,6 +1,8 @@
 
 Changes with v1.0.1
 
+  *) Set content type and content length. [Graham Leggett <minfrin@sharp.fm>]
+
   *) Add the option to explicitly set the base directory against which
      wildcards are interpreted. [Graham Leggett <minfrin@sharp.fm>]
 

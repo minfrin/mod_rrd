@@ -464,6 +464,67 @@ static int options_wadl(request_rec *r, rrd_conf *conf)
     return OK;
 }
 
+static const char *lookup_content_type(const char *format)
+{
+	switch(format[0]) {
+    case 'p':
+    case 'P':
+        if (strcasecmp(format, "PNG") == 0) {
+            return "image/png";
+        }
+        if (strcasecmp(format, "PDF") == 0) {
+            return "application/pdf";
+        }
+        break;
+    case 's':
+    case 'S':
+        if (strcasecmp(format, "SVG") == 0) {
+            return "image/svg+xml";
+        }
+        if (strcasecmp(format, "SSV") == 0) {
+            return "text/plain";
+        }
+        break;
+    case 'e':
+    case 'E':
+        if (strcasecmp(format, "EPS") == 0) {
+            return "application/eps";
+        }
+        break;
+    case 'x':
+    case 'X':
+        if (strcasecmp(format, "XML") == 0) {
+            return "application/xml";
+        }
+        if (strcasecmp(format, "XMLENUM") == 0) {
+            return "application/xml";
+        }
+        break;
+    case 'j':
+    case 'J':
+        if (strcasecmp(format, "JSON") == 0) {
+            return "application/json";
+        }
+        if (strcasecmp(format, "JSONTIME") == 0) {
+            return "application/json";
+        }
+        break;
+    case 'c':
+    case 'C':
+        if (strcasecmp(format, "CSV") == 0) {
+            return "text/csv";
+        }
+        break;
+    case 't':
+    case 'T':
+        if (strcasecmp(format, "TSV") == 0) {
+            return "text/tab-separated-values";
+        }
+        break;
+	}
+	return NULL;
+}
+
 static const char *parse_rrdgraph_suffix(request_rec *r)
 {
     const char *fname = ap_strrchr_c(r->filename, '/');
@@ -478,7 +539,7 @@ static const char *parse_rrdgraph_suffix(request_rec *r)
                 if (strcasecmp(suffix, ".png") == 0) {
                     return "PNG";
                 }
-                if (strcasecmp(suffix, "pdf") == 0) {
+                if (strcasecmp(suffix, ".pdf") == 0) {
                     return "PDF";
                 }
                 break;
@@ -487,7 +548,7 @@ static const char *parse_rrdgraph_suffix(request_rec *r)
                 if (strcasecmp(suffix, ".svg") == 0) {
                     return "SVG";
                 }
-                if (strcasecmp(suffix, "ssv") == 0) {
+                if (strcasecmp(suffix, ".ssv") == 0) {
                     return "SSV";
                 }
                 break;
@@ -2211,6 +2272,7 @@ static int generate_args(request_rec *r, rrd_cmds_t *cmds, apr_array_header_t **
     apr_array_header_t *args;
     rrd_cmd_t *cmd;
     rrd_opt_t *opt;
+    const char *format;
     int i, num = 4, ret = OK;
 
     rrd_conf *conf = ap_get_module_config(r->per_dir_config,
@@ -2239,6 +2301,12 @@ static int generate_args(request_rec *r, rrd_cmds_t *cmds, apr_array_header_t **
         num++;
     }
 
+    /* work out the format */
+    format = conf->format ? conf->format : parse_rrdgraph_suffix(r);
+
+    /* set the content type */
+    ap_set_content_type(r, lookup_content_type(format));
+
     /* create arguments of the correct size */
     args = *pargs = apr_array_make(r->pool, num, sizeof(const char *));
 
@@ -2246,7 +2314,7 @@ static int generate_args(request_rec *r, rrd_cmds_t *cmds, apr_array_header_t **
     APR_ARRAY_PUSH(args, const char *) = "rrdgraph";
     APR_ARRAY_PUSH(args, const char *) = "-";
     APR_ARRAY_PUSH(args, const char *) = "--imgformat";
-    APR_ARRAY_PUSH(args, const char *) = conf->format ? conf->format : parse_rrdgraph_suffix(r);
+    APR_ARRAY_PUSH(args, const char *) = format;
 
     /* first create the options */
     for (i = 0; i < cmds->opts->nelts; ++i) {
@@ -2426,6 +2494,7 @@ static int get_rrdgraph(request_rec *r)
             if (strcmp(grinfo->key, "image") == 0) {
                 apr_brigade_write(bb, NULL, NULL, (const char *)grinfo->value.u_blo.ptr,
                         grinfo->value.u_blo.size);
+                ap_set_content_length(r, grinfo->value.u_blo.size);
                 break;
             }
             /* skip anything else */
