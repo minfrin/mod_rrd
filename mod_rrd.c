@@ -1188,6 +1188,11 @@ static int resolve_def(request_rec *r, rrd_cmd_t *cmd, rrd_cmds_t *cmds)
         dirpath = apr_pstrndup(ptemp, r->filename, last - r->filename);
     }
 
+    ap_log_rerror(
+            APLOG_MARK, APLOG_DEBUG, APR_SUCCESS, r,
+			"mod_rrd: Attempting to match RRD files against wildcard: %s/%s",
+            dirpath, path);
+
     const char *err = ap_dir_fnmatch(&w, dirpath, path);
     if (err) {
         log_message(r, APR_SUCCESS,
