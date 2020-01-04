@@ -6,7 +6,7 @@ Depends on rrdtool from https://oss.oetiker.ch/rrdtool/.
 ## Highlights
 - All files referred to by DEF elements are subject to [Apache httpd's
   access control](https://httpd.apache.org/docs/2.4/howto/access.html) mechanism.
-- DEF elements support *wilcards*. Each matching file generates a
+- DEF elements support *wildcards*. Each matching file generates a
   matching DEF element, along with matching LINE/AREA/TICK elements,
   with corresponding PRINT and GPRINT elements.
 - DEF elements support [Apache httpd expression syntax](https://httpd.apache.org/docs/2.4/expr.html) within the
